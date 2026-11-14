@@ -120,7 +120,7 @@ def test_tape_follows_the_printer(designer):
     designer.evaluate("() => { S.printer = { path: 'a', model: 'PT-P750W', media_width: 12, media_length: 0 }; detectTape(); }")
     assert designer.evaluate('() => S.tape') == 'pt12'
     # A tape set by hand belongs to its printer
-    designer.evaluate("() => { S.settings.tapes = { a: 'pt24' }; detectTape(); }")
+    designer.evaluate("() => { S.printer.settings = Object.assign({}, S.printer.settings, { label_size: 'pt24' }); detectTape(); }")
     assert designer.evaluate('() => [S.tape, S.tapeManual]') == ['pt24', True]
     designer.evaluate("() => { S.printer = { path: 'b', model: 'QL-800', media_width: 62, media_length: 0 }; detectTape(); }")
     assert designer.evaluate('() => [S.tape, S.tapeManual]') == ['62', False]
@@ -233,7 +233,8 @@ def test_no_600_dpi_on_the_ql1100(designer):
     wait_for_preview(designer)
     assert preview_size(designer)[0] == 2 * width
     # The choice is kept for other printers, this one previews and prints at 300 dpi
-    fake_printer(designer, model='QL-1100', media_width=62)
+    # as the server tells it with each printer
+    fake_printer(designer, model='QL-1100', media_width=62, settings={'quality': 'high'})
     assert preview_size(designer)[0] == width
     assert designer.evaluate("() => formFor(S.edit.design, 1, true).get('high_res')") == '0'
     designer.click('#printerChip')
@@ -401,11 +402,11 @@ def test_tape_set_by_hand_is_known(designer):
     # says nothing about a tape set by hand
     designer.evaluate("() => { S.printer = { path: 'a', model: 'QL-800', media_width: 40, media_length: 0 }; detectTape(); }")
     assert designer.evaluate('() => S.tapeUnknown') == '40 mm'
-    designer.evaluate("() => { S.settings.tapes = { a: '62' }; detectTape(); }")
+    designer.evaluate("() => { S.printer.settings = Object.assign({}, S.printer.settings, { label_size: '62' }); detectTape(); }")
     assert designer.evaluate('() => [S.tapeUnknown, S.tapeManual]') == ['', True]
-    designer.evaluate("() => { S.settings.tapes = {}; S.printer.media_width = 62; detectTape(); }")
+    designer.evaluate("() => { S.printer.settings = Object.assign({}, S.printer.settings, { label_size: '' }); S.printer.media_width = 62; detectTape(); }")
     assert designer.evaluate("() => fitsTape('62red')")
-    designer.evaluate("() => { S.settings.tapes = { a: '62' }; detectTape(); }")
+    designer.evaluate("() => { S.printer.settings = Object.assign({}, S.printer.settings, { label_size: '62' }); detectTape(); }")
     assert not designer.evaluate("() => fitsTape('62red')")
 
 
@@ -429,7 +430,7 @@ def test_cutting_per_printer_and_per_label(designer):
         return {k: form[k][0] for k in ('cut', 'half_cut', 'chain')}
 
     designer.route('**/api/print', lambda route: route.fulfill(content_type='application/json', body='{"success": true}'))
-    designer.evaluate("() => { S.settings.cut = 'last'; }")
+    designer.evaluate("() => { S.printer.settings = Object.assign({}, S.printer.settings, { cut: 'last' }); }")
     type_line(designer, 0, 'Hello')
     # Printers without a setting of their own keep the one set before for all
     assert sent() == {'cut': 'last', 'half_cut': '1', 'chain': '0'}
@@ -439,7 +440,7 @@ def test_cutting_per_printer_and_per_label(designer):
     # The 62 mm label is printed on it as set by hand: a PT-E550W does not
     # report its tape over the network, and tape it takes would be assumed
     designer.evaluate("""() => { S.printer = Object.assign({}, S.printer, { model: 'PT-E550W' });
-        S.settings.tapes = Object.assign({}, S.settings.tapes, { [printerKey()]: '62' }); closeLayer(true); openPrinterPanel(); }""")
+        S.printer.settings = Object.assign({}, S.printer.settings, { label_size: '62' }); closeLayer(true); openPrinterPanel(); }""")
     # Not cut is chain printing on P-touch printers
     designer.click('[data-c="cut"][data-v="none"]')
     assert designer.locator('[data-c="chain"][data-v="1"].on:disabled').count() == 1
@@ -462,7 +463,7 @@ def test_cutting_per_printer_and_per_label(designer):
 def test_no_half_cut_on_a_ptouch_printer_without_a_half_cutter(designer):
     # The PT-P700 cuts and chain prints, but has no half cutter: half cuts
     # are shown off and disabled with the reason, also when they are on
-    designer.evaluate("() => { S.printer = Object.assign({}, S.printer, { model: 'PT-P700' }); S.settings.cut = 'last'; openPrinterPanel(); }")
+    designer.evaluate("() => { S.printer = Object.assign({}, S.printer, { model: 'PT-P700' }); S.printer.settings = Object.assign({}, S.printer.settings, { cut: 'last' }); openPrinterPanel(); }")
     half = designer.locator('.pp [data-c="half_cut"][data-v="0"]')
     assert half.get_attribute('class') == 'on' and half.is_disabled()
     assert designer.get_attribute('.pp div:has(> .seg [data-c="half_cut"])', 'title') == 'This printer has no half cutter'
@@ -543,7 +544,7 @@ def test_receipt_shows_the_blank_paper_before_it(designer):
 def test_cutting_is_disabled_on_a_printer_without_a_cutter(designer):
     # The labels of a PUQU Q00 are torn off, cutting after each or the last
     # label was offered all the same
-    designer.evaluate("() => { S.printer = Object.assign({}, S.printer, { model: 'PUQU/Q00' }); S.settings.cut = 'each'; openPrinterPanel(); }")
+    designer.evaluate("() => { S.printer = Object.assign({}, S.printer, { model: 'PUQU/Q00' }); S.printer.settings = Object.assign({}, S.printer.settings, { cut: 'each' }); openPrinterPanel(); }")
     cuts = designer.locator('.pp [data-c="cut"]')
     assert cuts.count() == 3 and all(cuts.nth(i).is_disabled() for i in range(3))
     assert designer.locator('.pp [data-c="cut"].on').count() == 0
@@ -555,7 +556,7 @@ def test_cutting_is_disabled_on_a_printer_without_a_cutter(designer):
     assert designer.evaluate("() => [printerCut().cut, cutOf({ cut: 'each', label_size: 'puqu50x30' }).cut]") == ['none', 'none']
     assert 'disabled title="This printer has no cutter"' in designer.evaluate("() => cutField({ cut: '', label_size: 'puqu50x30' })")
     # It prints in one quality, Fast did nothing
-    designer.evaluate("() => { S.settings.quality = 'fast'; closeLayer(true); openPrinterPanel(); }")
+    designer.evaluate("() => { S.printer.settings = Object.assign({}, S.printer.settings, { quality: 'fast' }); closeLayer(true); openPrinterPanel(); }")
     fast, quality = designer.locator('.pp [data-q="fast"]'), designer.locator('.pp [data-q="quality"]')
     assert fast.is_disabled() and quality.is_disabled() and 'on' in quality.get_attribute('class').split()
     assert quality.get_attribute('title') == 'This printer prints in one quality only'
@@ -563,7 +564,7 @@ def test_cutting_is_disabled_on_a_printer_without_a_cutter(designer):
 
 def test_ql500_labels_are_cut_by_hand(designer):
     # The QL-500 has a lever instead of a cutter, cutting was offered
-    designer.evaluate("() => { S.printer = Object.assign({}, S.printer, { model: 'QL-500' }); S.settings.cut = 'each'; openPrinterPanel(); }")
+    designer.evaluate("() => { S.printer = Object.assign({}, S.printer, { model: 'QL-500' }); S.printer.settings = Object.assign({}, S.printer.settings, { cut: 'each' }); openPrinterPanel(); }")
     cuts = designer.locator('.pp [data-c="cut"]')
     assert cuts.count() == 3 and all(cuts.nth(i).is_disabled() for i in range(3))
     assert designer.get_attribute('.pp div:has(> .seg [data-c="cut"])', 'title') == 'This printer has no automatic cutter'
@@ -581,7 +582,7 @@ def test_ql500_labels_are_cut_by_hand(designer):
 
 def test_assumed_tape_is_one_the_printer_takes(designer):
     # A PUQU Q00 does not report its labels, 62 mm endless tape was assumed
-    designer.evaluate("() => { S.settings.tapes = {}; S.printer = Object.assign({}, S.printer, { model: 'PUQU/Q00', media_width: null, media_length: 0 }); detectTape(); }")
+    designer.evaluate("() => { S.printer.settings = Object.assign({}, S.printer.settings, { label_size: '' }); S.printer = Object.assign({}, S.printer, { model: 'PUQU/Q00', media_width: null, media_length: 0 }); detectTape(); }")
     assert designer.evaluate('() => [S.tape, S.tapeAssumed]') == ['puqu50x30', True]
     # New labels start on it, the printer panel names it, not 62 mm endless
     designer.evaluate('() => openPrinterPanel()')
@@ -597,7 +598,7 @@ def test_printer_of_another_driver_gets_what_it_offers(designer):
         C.models['Other-1'] = { qualities: ['fast', 'quality'], high_res: false, half_cut: false, chain: false,
                                 feed_waste: false, job_stages: false, colors: 'black', never_cut: 'It keeps them.' };
         SIZES['o48'] = Object.assign({}, SIZES['62'], { id: 'o48', models: ['Other-1'], dpi: [203, 203] });
-        S.printer = Object.assign({}, S.printer, { model: 'Other-1' }); S.settings.quality = 'high'; S.settings.cut = 'last';
+        S.printer = Object.assign({}, S.printer, { model: 'Other-1' }); S.printer.settings = Object.assign({}, S.printer.settings, { quality: 'high' }); S.printer.settings = Object.assign({}, S.printer.settings, { cut: 'last' });
         openPrinterPanel(); }""")
     assert designer.eval_on_selector_all('.pp [data-q]', 'buttons => buttons.map(b => b.textContent)') == ['Fast', 'Quality']
     assert designer.inner_text('.pp [data-q].on') == 'Quality'
@@ -708,3 +709,24 @@ def test_sheet_after_printing_on_a_phone_names_the_printer_with_its_maker(design
     designer.set_viewport_size({'width': 700, 'height': 900})
     designer.evaluate("() => announce({ state: 'printed', copies: 1, title: 'Q', values: {}, design: baseDesign('puqu50x30'), printer: 'PUQU/Q00' })")
     assert 'Q on the PUQU Q00' in designer.inner_text('body')
+
+
+def test_settings_are_kept_on_the_server_for_every_browser(designer, browser, server):
+    designer.click('#printerChip')
+    with designer.expect_response('**/api/settings'):
+        designer.click('[data-q="fast"]')
+    with designer.expect_response('**/api/settings'):
+        designer.click('[data-c="cut"][data-v="last"]')
+    other = browser.new_context(locale='en-US').new_page()
+    try:
+        other.goto(server + '/labeldesigner/#edit')
+        wait_for_preview(other)
+        assert other.evaluate("() => [kept().quality, printerCut().cut, collated()]") == ['fast', 'last', True]
+        # A change in one browser keeps the change of the other
+        other.click('#printerChip')
+        with other.expect_response('**/api/settings'):
+            other.click('[data-col="0"]')
+        designer.evaluate("() => refreshPrinters()")
+        assert designer.evaluate("() => [kept().quality, printerCut().cut, collated()]") == ['fast', 'last', False]
+    finally:
+        other.context.close()
